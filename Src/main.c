@@ -22,6 +22,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "hx8357.h"
+#include "bme280.h"
+#include "ds3231.h"
 
 #include "fonts/Font_3_Tiny.h"
 #include "fonts/Font_3_PicoPixel.h"
@@ -146,24 +148,87 @@
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
 
-SPI_HandleTypeDef hspi1;
-
 /* USER CODE BEGIN PV */
 
+uint8_t  rtcSet = 1, clearEEPROM = 0, barographViewed = 0, sound = 1, printAlarm = 0, alarm1 = 0;
+uint8_t rtcSec, rtcMin, rtcHrs, rtcDay, rtcDate, rtcMonth, rtcYear,
+rtcSecA1, rtcMinA1, rtcHrsA1, rtcDayA1, rtcDateA1, rtcMinA2, rtcHrsA2, rtcDayA2, rtcDateA2;
+uint16_t touchX, touchY;
+uint8_t rtcSecLast = 61, rtcMinLast = 61, rtcHrsLast = 25, rtcDayLast, rtcDateLast, rtcMonthLast, rtcYearLast;
+uint16_t pressure, pressureLast;
+double temperatureLast, humidityLast, temperature, humidity,
+temperatureRemote, temperatureRemoteLast, humidityRemote, humidityRemoteLast, rtcMoon, rtcMoonLast;
+uint64_t startHistory;
+
+uint16_t barographHourly[367] = { 25 };
+uint16_t barographDaily[367];
+uint16_t barographMinimum = 0, barographMaximum = 0, barographAverage = 0;
+
+//float temperature = 0.0, humidity = 0.0, pressure = 0.0;
+
+uint8_t sec = 0, min = 0, hour = 0, day = 0, date = 0, month = 0, year = 0, a1sec = 0, a1min = 0, a1hour = 0, a1day = 0, a1date = 0, a2min = 0, a2hour = 0, a2day = 0, a2date = 0,
+power = 0, set = 0, temperatureAfterpoint;
+
+uint64_t milliseconds, updateRTC, updateUART;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
-static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/*uint8_t rtcBuffer[19];
 
+	uint8_t data[] = "UART OK\n";
+	uint8_t rx_index = 0;
+	uint8_t rx_data;
+	uint8_t rx_buffer[256];
+
+	void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+	{
+		uint8_t i;
+		if (huart->Instance == USART1)
+		{
+			if (rx_index == 0)
+			{
+				for (i = 0; i < 255; i++)
+				{
+					rx_buffer[i] = 0;
+				}
+			}
+			rx_buffer[rx_index++] = rx_data;
+
+	HAL_UART_Receive_IT(&huart1, &rx_data, 1);
+		}
+	}
+
+	void relayLight(void)
+{
+		if (hour == a1hour && min == a1min) power = 1;
+		if (hour == a2hour && min == a2min) power = 0;
+
+			if (!power)
+			{
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+			HD44780_SetPos(0, 10);
+			HD44780_SendChar(' ');
+			HD44780_SetPos(1, 10);
+			HD44780_SendChar('>');
+			}
+			else
+			{
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+			HD44780_SetPos(0, 10);
+			HD44780_SendChar('>');
+			HD44780_SetPos(1, 10);
+			HD44780_SendChar(' ');
+			}
+} */
 /* USER CODE END 0 */
 
 /**
@@ -196,11 +261,10 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
-  MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
 
 	LCD_Init();
-
+	BME280_Init();
 	LCD_Rect_Fill(0, 0, 480, 320, BLUE);
 	LCD_Rect_Fill(1, 1, 478, 318, BLACK);
 
@@ -249,6 +313,30 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
+	DS3231_Update();
+	rtcSec = DS3231_getSec();
+	rtcMin = DS3231_getMin();
+	rtcHrs = DS3231_getHrs();
+	rtcDay = DS3231_getDay();
+	rtcDate = DS3231_getDate();
+	rtcMonth = DS3231_getMonth();
+	rtcYear = DS3231_getYear();
+	//		rtcSecA1 = DS3231_getAlarm1Sec();
+	rtcMinA1 = DS3231_getAlarm1Min();
+	rtcHrsA1 = DS3231_getAlarm1Hour();
+	//		rtcDayA1 = DS3231_getAlarm1Day();
+	//		rtcDateA1 = DS3231_getAlarm1Date();
+	//		rtcMinA2 = DS3231_getAlarm2Min();
+	//		rtcHrsA2 = DS3231_getAlarm2Hour();
+	//		rtcDayA2 = DS3231_getAlarm2Day();
+	//		rtcDateA2 = DS3231_getAlarm2Date();
+
+
+	temperature = BME280_getTemperature(-1);
+	humidity = BME280_getHumidity(-1);
+	pressure = (uint16_t)BME280_getPressure();
+	HAL_Delay(1000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -330,44 +418,6 @@ static void MX_I2C1_Init(void)
 }
 
 /**
-  * @brief SPI1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_SPI1_Init(void)
-{
-
-  /* USER CODE BEGIN SPI1_Init 0 */
-
-  /* USER CODE END SPI1_Init 0 */
-
-  /* USER CODE BEGIN SPI1_Init 1 */
-
-  /* USER CODE END SPI1_Init 1 */
-  /* SPI1 parameter configuration*/
-  hspi1.Instance = SPI1;
-  hspi1.Init.Mode = SPI_MODE_MASTER;
-  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
-  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi1.Init.NSS = SPI_NSS_HARD_OUTPUT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
-  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
-  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
-  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-  hspi1.Init.CRCPolynomial = 10;
-  if (HAL_SPI_Init(&hspi1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN SPI1_Init 2 */
-
-  /* USER CODE END SPI1_Init 2 */
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -379,13 +429,9 @@ static void MX_GPIO_Init(void)
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, DB0_Pin|DB1_Pin|DB2_Pin|DB3_Pin
@@ -396,13 +442,6 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LCD_RST_Pin|LCD_CS_Pin|LCD_WR_Pin|LCD_RS_Pin
                           |DB13_Pin|DB14_Pin|DB15_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : LED_Pin */
-  GPIO_InitStruct.Pin = LED_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : DB0_Pin DB1_Pin DB2_Pin DB3_Pin
                            DB4_Pin DB5_Pin DB6_Pin DB7_Pin
